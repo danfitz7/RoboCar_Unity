@@ -186,7 +186,8 @@ public class RobotFollowDriver : MonoBehaviour, ITrackableEventHandler
 			}
 			Int16 rotationErrorInt = (Int16)(Math.Round((rotationErrorRadians * COMMUNICATION_INT16_MAX) / Math.PI));
 
-//			print ("Drive<" + distError + "mm\t" + ((((float)rotationErrorInt) * 180.0f) / 32767.0f).ToString () + "deg>");
+			// Good for debugging
+			print ("D<" + distError + "mm\t" + ((((float)rotationErrorInt) * 180.0f) / 32767.0f).ToString () + "deg>");
 
 
 			// Byte stuffing, yay!
@@ -300,7 +301,7 @@ public class RobotFollowDriver : MonoBehaviour, ITrackableEventHandler
         // TODO: setup async serial read
         string received = ReadFromArduino(1);
 		if (received != null){// && received.Length > 5){
-            print("RECEIVED: " + received);
+            print("R: " + received);
 			if (received.Trim().Equals(DRIVE_ARDUINO_ADDRESS)){
 				print("ACK");
                 sendAck();
@@ -313,7 +314,8 @@ public class RobotFollowDriver : MonoBehaviour, ITrackableEventHandler
 			// get the vector between the camera (this robot) and target (following tracking target)
 			Vector3 cameraToTarget = this.transform.position - ARCamera.transform.position;
 
-			distanceError_m = Mathf.Sqrt((cameraToTarget.x*cameraToTarget.x) + (cameraToTarget.z*cameraToTarget.z)) - FOLLOWING_DISTANCE_M; // TODO: won't work if tracked object is behind us..bust still tracked..somehow
+			distanceError_m = Mathf.Sqrt((cameraToTarget.x*cameraToTarget.x) + (cameraToTarget.z*cameraToTarget.z)); // TODO: won't work if tracked object is behind us..bust still tracked..somehow
+			distanceError_m -= FOLLOWING_DISTANCE_M;
 			angleError_deg = Mathf.Atan2(cameraToTarget.x, cameraToTarget.z) * Mathf.Rad2Deg;
 
         // If we can't find the marker, stop
