@@ -8,14 +8,18 @@ using System.IO.Ports;
 using System.IO;
 using System;
 
+using Vuforia;
+
 using Consistent_Overhead_Byte_Stuffing;
 
-public class LeapMotionMobileBaseDriver : MonoBehaviour
+public class RobotFollowDriver : MonoBehaviour, ITrackableEventHandler
 {
-    const string DEFAULT_ARDUINO_PORT_NAME = "\\\\.\\COM7";//"COM6";
+	const float FOLLOWING_DISTANCE_M = 1.5f; // How far behind to follow the target, in meters
+
+    //const string DEFAULT_ARDUINO_PORT_NAME = "\\\\.\\COM7";//"COM6";
     const int SERIAL_BAUD = 9600;
     const string ARDUINO_ACK = "ACK";
-    const string DRIVE_ARDUINO_ADDRESS = "255";
+    //const string DRIVE_ARDUINO_ADDRESS = "255";
 
  //   static readonly string DRIVE_COMMAND = "DRIVE";
     static readonly int DRIVE_MESSAGE_DATA_BYTES = (2 * 3); // One byte delimiter + 2 numbers, 2 bytes each
@@ -26,7 +30,12 @@ public class LeapMotionMobileBaseDriver : MonoBehaviour
     const int DEFAULT_ARDIUNO_PORT_WRITE_TIMEOUT_MS = 16;   // 16.67ms between frames at 60fps
    
     System.IO.Ports.SerialPort arduinoSerialPort;
-    string arduinoPortName = DEFAULT_ARDUINO_PORT_NAME;
+	string arduinoPortName = "";//DEFAULT_ARDUINO_PORT_NAME;
+
+	private TrackableBehaviour mTrackableBehaviour;
+	bool tracking = false;
+
+	GameObject ARCamera;
 
     // These are the actual values we are trying to convey to the arduino
     float distanceError_m = 0.0f;
@@ -69,15 +78,16 @@ public class LeapMotionMobileBaseDriver : MonoBehaviour
         return serial_ports;
     }
 
-    void sendAck(){
-        print("Sending ACK...");
-        arduinoSerialPort.Write(ARDUINO_ACK);
-        arduinoSerialPort.BaseStream.Flush();
-    }
+    //void sendAck(){
+    //    print("Sending ACK...");
+    //    arduinoSerialPort.Write(ARDUINO_ACK);
+    //    arduinoSerialPort.BaseStream.Flush();
+    //}
 
     // Open Serial Port connection to Arduino
     public void OpenArduinoSerialPortConnection(){
         print("Opening port " + arduinoPortName);
+		arduinoSerialPort = new System.IO.Ports.SerialPort(arduinoPortName, SERIAL_BAUD);    // Connect to the driver Arduino
         if (arduinoSerialPort != null){
             if (arduinoSerialPort.IsOpen){
                 arduinoSerialPort.Close();
@@ -99,14 +109,17 @@ public class LeapMotionMobileBaseDriver : MonoBehaviour
 
     // Close any open serial port connection before terminating
     void OnApplicationQuit(){
-        arduinoSerialPort.Close();
-        Debug.Log("Arduino Port closed!");
+		if (arduinoSerialPort != null && arduinoSerialPort.IsOpen) {
+			arduinoSerialPort.Close ();
+			Debug.Log ("Arduino Port closed!");
+		}
     }
 
 //    void arduinoSerialReadCallback(String s){
 //       print("Received: " + s);
 //    }
 
+	/*
     // Arduino serial read asynch callback (doesn't clog up main loop)
     public IEnumerator AsynchronousReadFromArduino(Action<string> callback, Action fail = null, float timeout = float.PositiveInfinity){
         DateTime initialTime = DateTime.Now;
@@ -143,15 +156,18 @@ public class LeapMotionMobileBaseDriver : MonoBehaviour
             fail();
         yield return null;
     }
+	*/
 
     void sendDriveCommand(){
 
         //print("Sending drive command");
-        // Unity is in meters, so multiply by 10,000 to get 100um as base unit
+        
+		// Unity is in meters, so multiply by 10,000 to get 100um as base unit
         Int16 distError = (Int16)(distanceError_m * 10000.0f + 0.5f);
-        const float twoPi = (float)Math.PI * 2.0f; 
-        float rotationErrorRadians = angleError_deg * Mathf.Deg2Rad;
-
+        
+		// Convert angle and ensure it is in [-180, 180] degrees
+		const float twoPi = (float)Math.PI * 2.0f; 
+		float rotationErrorRadians = angleError_deg * Mathf.Deg2Rad;
         while (rotationErrorRadians <= -Math.PI){    // If we're less than -180 degrees, add a rotation so we're in -180<r<180
             rotationErrorRadians += twoPi;
         }
@@ -179,21 +195,53 @@ public class LeapMotionMobileBaseDriver : MonoBehaviour
 
         //print("Initial message (6)" + BitConverter.ToString(driveMessageData) + "\nFinal message: " + BitConverter.ToString(finalMessage));
 
-        arduinoSerialPort.Write(finalMessage, 0, encodededLength+1);
+		if (arduinoSerialPort != null && arduinoSerialPort.IsOpen) {
+			arduinoSerialPort.Write (finalMessage, 0, encodededLength + 1);
+		}
         //arduinoSerialPort.BaseStream.Flush();
     }
+
+
+
+	// implement ITrackableEventHandler
+	public void OnTrackingFound(){
+		tracking = true;
+	}
+	public void OnTrackingLost(){
+		tracking = false;
+	}
+	public void OnTrackableStateChanged(TrackableBehaviour.Status previousStatus, TrackableBehaviour.Status newStatus){
+		if (newStatus == TrackableBehaviour.Status.DETECTED ||
+			newStatus == TrackableBehaviour.Status.TRACKED ||
+			newStatus == TrackableBehaviour.Status.EXTENDED_TRACKED){
+			OnTrackingFound();
+		}else{
+			OnTrackingLost();
+		}
+	}	
+
+
+
+
+
 
     void Start(){
         print("RoboCar Following Driver Starting...");
 
-        //handActivationCollider.size.Set(HAND_ACTIVATION_VOLUME_WIDTH_M, HAND_ACTIVATION_VOLUME_LENGTH_M, HAND_ACTIVATION_VOLUME_HEIGTH_M);
-        //handActivationCollider.transform.position.Set(0.0f,0.0f, LEAP_MOTION_CONTROLLER_HEIGHT_ABOVE_DISPLAY);
+		ARCamera = GameObject.Find("ARCamera");
+
+		// Register to receive OnTrackingFound and OnTrackingLost events
+		mTrackableBehaviour = GetComponent<TrackableBehaviour>();
+		if (mTrackableBehaviour){
+			mTrackableBehaviour.RegisterTrackableEventHandler(this);
+		}
+			
 
         // TODO: filter port names to find arduinos, then connect to each of those, monitor it's messages for the drive teensy id number, and only connect to that arduino
         GetPortNames();
-        arduinoSerialPort = new System.IO.Ports.SerialPort(arduinoPortName, SERIAL_BAUD);    // Connect to the driver Arduino
-        OpenArduinoSerialPortConnection();
-        sendAck();
+        //OpenArduinoSerialPortConnection();
+        
+		//sendAck();
         // Start reading from the arduino serial port
         //        StartCoroutine(
         //            AsynchronousReadFromArduino
@@ -203,8 +251,7 @@ public class LeapMotionMobileBaseDriver : MonoBehaviour
         //           )
         //       );
 
-        // setup output message
-        driveMessageData = new byte[DRIVE_MESSAGE_DATA_BYTES];
+		driveMessageData = new byte[DRIVE_MESSAGE_DATA_BYTES];  // setup output message
     }
 
     void zeroDrive() {
@@ -216,42 +263,52 @@ public class LeapMotionMobileBaseDriver : MonoBehaviour
     }
 
     public string ReadFromArduino(int timeout = 0){
-        if (timeout > 0){
-            arduinoSerialPort.ReadTimeout = timeout;
-        }
+		if (arduinoSerialPort != null) {
+			if (timeout > 0) {
+				arduinoSerialPort.ReadTimeout = timeout;
+			}
 
-        try
-        {
-//            if (arduinoSerialPort != null && arduinoSerialPort.IsOpen && arduinoSerialPort.BytesToRead > 0){ // If there are any bytes to read in the input buffer
-                return arduinoSerialPort.ReadLine();
-//            }else{
-//                return null;
-//            }
-        }catch (TimeoutException){
-            return null;
-        }
+			try {
+				//            if (arduinoSerialPort != null && arduinoSerialPort.IsOpen && arduinoSerialPort.BytesToRead > 0){ // If there are any bytes to read in the input buffer
+				return arduinoSerialPort.ReadLine ();
+				//            }else{
+				//                return null;
+				//            }
+			} catch (TimeoutException) {
+				return null;
+			}
+		}
+		return null;
     }
 
     void Update(){
 
         // Print anything received from the arduino.
         // TODO: setup async serial read
-        string received = ReadFromArduino(1);
-        if (received != null && received.Length > 7){
-            print("RECEIVED: " + received);
-            if (received.Equals(DRIVE_ARDUINO_ADDRESS)){
-                sendAck();
-            }
-        }
+//        string received = ReadFromArduino(1);
+//        if (received != null && received.Length > 7){
+//            print("RECEIVED: " + received);
+//            //if (received.Equals(DRIVE_ARDUINO_ADDRESS)){
+//            //    sendAck();
+//            //}
+//        }
 
         // If we are tracking our marker in this frame, go towards it
-        //if () {
-        
+        if (tracking) {
+			// Here we actually calculate our distance and angle from the origin (camera) to ourselves
+			// get the vector between the camera (this robot) and target (following tracking target)
+			Vector3 cameraToTarget = this.transform.position - ARCamera.transform.position;
+
+			distanceError_m = Mathf.Sqrt((cameraToTarget.x*cameraToTarget.x) + (cameraToTarget.z*cameraToTarget.z)) - FOLLOWING_DISTANCE_M; // TODO: won't work if tracked object is behind us..bust still tracked..somehow
+			angleError_deg = Mathf.Atan2(cameraToTarget.x, cameraToTarget.z) * Mathf.Rad2Deg;
+
+			sendDriveCommand();
+
         // If we can't find the marker, stop
-        //}else{
-//            print("\tNo marker");
+        }else{
+            //print("tracking lost");
             zeroDrive();
-        //}
+        }
         
     }
 }
