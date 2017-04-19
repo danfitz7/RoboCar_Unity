@@ -187,7 +187,7 @@ public class RobotFollowDriver : MonoBehaviour, ITrackableEventHandler
 			Int16 rotationErrorInt = (Int16)(Math.Round((rotationErrorRadians * COMMUNICATION_INT16_MAX) / Math.PI));
 
 			// Good for debugging
-			print ("D<" + distError + "mm\t" + ((((float)rotationErrorInt) * 180.0f) / 32767.0f).ToString () + "deg>");
+//			print ("D<" + distError + "mm\t" + ((((float)rotationErrorInt) * 180.0f) / 32767.0f).ToString () + "deg>");
 
 
 			// Byte stuffing, yay!
@@ -256,7 +256,7 @@ public class RobotFollowDriver : MonoBehaviour, ITrackableEventHandler
 		GetPortNames();
         OpenArduinoSerialPortConnection();
 		sendAck();
-
+		sendAck();
         // Start reading from the arduino serial port
         //        StartCoroutine(
         //            AsynchronousReadFromArduino
